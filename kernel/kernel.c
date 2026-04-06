@@ -121,64 +121,13 @@ void kernel_main(void) {
 	serial_print("[KERNEL] Interrupts enabled - entering polling loop\n");
 	
 	vga_puts_at(5, 20, "[INT OK]");
-	vga_puts_at(6, 0, "Timer: 0");
+	vga_puts_at(6, 0, "Starting scheduler...");
 
-	extern uint32_t timer_get_ticks(void);
+	extern void scheduler_start(void);
+	serial_print("[KERNEL] Starting scheduler...\n");
+	scheduler_start();
 	
-	serial_print("[KERNEL] Starting polling loop...\n");
-	
-	uint32_t last = 0;
-	char buf[32];
-	int loop_count = 0;
-	
-	for (;;) {
-		loop_count++;
-		uint32_t t = timer_get_ticks();
-		
-		// Print every 10000 iterations to avoid spam
-		if (loop_count % 10000 == 0) {
-			serial_print("[POLL] Loop iteration: ");
-			serial_print("Tick count: ");
-			// Convert tick count to string for serial output
-			int n = (int)t;
-			int len = 0;
-			if (n == 0) {
-				buf[len++] = '0';
-			} else {
-				int tmp = n;
-				while (tmp > 0) { buf[len++] = '0' + (tmp % 10); tmp /= 10; }
-				// reverse
-				for (int i = 0; i < len/2; i++) { char c = buf[i]; buf[i] = buf[len-1-i]; buf[len-1-i] = c; }
-			}
-			buf[len] = '\0';
-			serial_print(buf);
-			serial_print("\n");
-		}
-		
-		// Update VGA display - write the full "Timer: XXX" string
-		if (t != last) {
-			last = t;
-			int n = (int)t;
-			int len = 0;
-			if (n == 0) {
-				buf[len++] = '0';
-			} else {
-				int tmp = n;
-				while (tmp > 0) { buf[len++] = '0' + (tmp % 10); tmp /= 10; }
-				// reverse
-				for (int i = 0; i < len/2; i++) { char c = buf[i]; buf[i] = buf[len-1-i]; buf[len-1-i] = c; }
-			}
-			buf[len] = '\0';
-			
-			// Write "Timer: " followed by the number
-			vga_puts_at(6, 0, "Timer: ");
-			vga_puts_at(6, 7, buf);
-			
-			// Clear any remaining characters from previous longer numbers
-			vga_puts_at(6, 7 + len, "    ");
-		}
-		
-		asm volatile("hlt");
-	}
+	// scheduler_start() never returns - execution continues in tasks
+	serial_print("[KERNEL] ERROR: scheduler_start() returned!\n");
 }
 

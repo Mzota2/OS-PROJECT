@@ -5,6 +5,31 @@
 #define MAX_TASKS 10
 #define STACK_SIZE 4096
 
+static inline void outb(uint16_t port, uint8_t value) {
+    asm volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static inline uint8_t inb(uint16_t port) {
+    uint8_t value;
+    asm volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+static void serial_putc(char c) {
+    while ((inb(0x3F8 + 5) & 0x20) == 0);
+    outb(0x3F8, (uint8_t)c);
+}
+
+static void serial_print(const char* s) {
+    while (*s) {
+        if (*s == '\n') {
+            serial_putc('\r');
+        }
+        serial_putc(*s);
+        s++;
+    }
+}
+
 static task_t tasks[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][STACK_SIZE];
 static void (*task_entries[MAX_TASKS])(void);
@@ -17,6 +42,14 @@ extern void display_task_status(const char* name, char status);
 extern void display_current_task(const char* name);
 
 static void task_trampoline(void);
+
+static void debug_trampoline(void) {
+	volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+	vga[23 * 80 + 0] = (0x0F << 8) | 'T';
+	vga[23 * 80 + 1] = (0x0F << 8) | 'R';
+	vga[23 * 80 + 2] = (0x0F << 8) | 'M';
+	vga[23 * 80 + 3] = (0x0F << 8) | 'P';
+}
 
 void scheduler_init(void) {
 	task_count = 0;
@@ -86,24 +119,44 @@ void scheduler_tick(void) {
 }
 
 void scheduler_yield(void) {
-	if (task_count <= 1) return;
-	uint32_t prev = current_index;
-	uint32_t next = find_next_ready(prev);
-	if (next == prev) return;
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    vga[24 * 80 + 0] = (0x0F << 8) | 'Y';
+    vga[24 * 80 + 1] = (0x0F << 8) | 'I';
+    vga[24 * 80 + 2] = (0x0F << 8) | 'E';
+    vga[24 * 80 + 3] = (0x0F << 8) | 'L';
+    vga[24 * 80 + 4] = (0x0F << 8) | 'D';
+    serial_print("[SCHED] yield prev=");
+    char pch = '0' + (char)current_index;
+    serial_putc(pch);
+    serial_print("\n");
+    if (task_count <= 1) return;
+    uint32_t prev = current_index;
+    uint32_t next = find_next_ready(prev);
+    if (next == prev) {
+        serial_print("[SCHED] yield no-next\n");
+        return;
+    }
 
-	task_t* prev_task = &tasks[prev];
-	task_t* next_task = &tasks[next];
+    task_t* prev_task = &tasks[prev];
+    task_t* next_task = &tasks[next];
 
-	prev_task->state = TASK_READY;
-	next_task->state = TASK_RUNNING;
+    prev_task->state = TASK_READY;
+    next_task->state = TASK_RUNNING;
 
-	// Display task switch
-	display_task_status((const char*)next_task->name, '*');
-	
-	current_index = next;
+    // Display task switch
+    display_task_status((const char*)next_task->name, '*');
+    
+    current_index = next;
+    display_current_task((const char*)next_task->name);
+    serial_print("[SCHED] switch to ");
+    char nch = '0' + (char)next;
+    serial_putc(nch);
+    serial_print("\n");
 
-	// Switch contexts: does not return to the same point; execution continues in next task.
-	context_switch_asm(prev_task, next_task);
+    // Switch contexts: does not return to the same point; execution continues in next task.
+    context_switch_asm(prev_task, next_task);
+
+    serial_print("[SCHED] resumed from context_switch_asm\n");
 }
 
 void scheduler_start(void) {
@@ -116,10 +169,16 @@ void scheduler_start(void) {
 	for (int i = 0; msg[i] != '\0'; i++) {
 		vga[6 * 80 + 30 + i] = (0x0F << 8) | msg[i];
 	}
+	vga[22 * 80 + 0] = (0x0F << 8) | 'S';
+	vga[22 * 80 + 1] = (0x0F << 8) | 'T';
+	vga[22 * 80 + 2] = (0x0F << 8) | 'A';
+	vga[22 * 80 + 3] = (0x0F << 8) | 'R';
+	vga[22 * 80 + 4] = (0x0F << 8) | 'T';
 
 	current_index = 0;
 	tasks[0].state = TASK_RUNNING;
 	display_task_status((const char*)tasks[0].name, '*');
+	display_current_task((const char*)tasks[0].name);
 
 	// Create a dummy kernel task context (we won't save it, just load the first task)
 	task_t dummy_kernel;
@@ -134,9 +193,9 @@ void scheduler_start(void) {
 	dummy_kernel.context.eip = 0;
 	dummy_kernel.context.eflags = 0x202;
 
-	// Jump from kernel context into the first task.
-	// This function does not return
+	serial_print("[TEST] direct switch to first task\n");
 	context_switch_asm(&dummy_kernel, &tasks[0]);
+	serial_print("[TEST] ERROR returned from direct switch\n");
 }
 
 uint32_t scheduler_on_timer_isr(uint32_t current_esp) {
@@ -146,15 +205,22 @@ uint32_t scheduler_on_timer_isr(uint32_t current_esp) {
 
 // Trampoline that calls the registered entry for the current task id
 static void task_trampoline(void) {
-	// Find our task slot
-	uint32_t id = current_index;
-	void (*entry)(void) = task_entries[id];
-	if (entry) {
-		entry();
-	}
-	// If a task ever returns, mark it dead and yield
-	tasks[id].state = TASK_DEAD;
-	while (1) {
-		scheduler_yield();
-	}
+    debug_trampoline();
+    // Find our task slot
+    uint32_t id = current_index;
+    serial_print("[SCHED] task_trampoline id = ");
+    char num = '0' + (char)id;
+    serial_putc(num);
+    serial_print("\n");
+    volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+    vga[21 * 80 + 0] = (0x0F << 8) | num;
+    void (*entry)(void) = task_entries[id];
+    if (entry) {
+        entry();
+    }
+    // If a task ever returns, mark it dead and yield
+    tasks[id].state = TASK_DEAD;
+    while (1) {
+        scheduler_yield();
+    }
 }

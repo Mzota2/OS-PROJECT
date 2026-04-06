@@ -23,10 +23,14 @@ section .text
 
 ; cdecl: [esp+4]=prev, [esp+8]=next, [esp]=return addr to caller
 context_switch_asm:
-	; eax = prev, edx = next, ecx = ret_eip (temporaries)
-	mov     eax, [esp + 4]          ; prev
-	mov     edx, [esp + 8]          ; next
+	; eax = prev task_t*, edx = next task_t*, ecx = return EIP (temporaries)
+	mov     eax, [esp + 4]          ; prev task pointer
+	mov     edx, [esp + 8]          ; next task pointer
 	mov     ecx, [esp]              ; return EIP of caller
+
+	; Adjust pointers to the cpu_context_t inside task_t.
+	add     eax, 8
+	add     edx, 8
 
 	; Save previous context (callee-saved regs + eip, eflags, esp)
 	mov     [eax + OFF_EBX], ebx
@@ -45,13 +49,12 @@ context_switch_asm:
 	mov     esi, [edx + OFF_ESI]
 	mov     edi, [edx + OFF_EDI]
 	mov     ebp, [edx + OFF_EBP]
+	mov     esp, [edx + OFF_ESP]
 	mov     ecx, [edx + OFF_EFLAGS]
 	push    ecx
 	popfd
-	mov     esp, [edx + OFF_ESP]
 	mov     ecx, [edx + OFF_EIP]
-	push    ecx
-	ret
+	jmp     ecx
 
 ; void start_first_task_asm(uint32_t initial_esp);
 ; Enter the first scheduled task by restoring a synthetic interrupt frame.

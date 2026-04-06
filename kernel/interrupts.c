@@ -239,7 +239,7 @@ void pit_timer_service(void) {
     }
     
     // Don't call scheduler_tick() yet - test if ISR works at all
-    // scheduler_tick();
+    scheduler_tick();
 }
 
 // Expose tick count for polling from main loop
