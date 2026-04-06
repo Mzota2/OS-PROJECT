@@ -1,3 +1,17 @@
+// interrupts.c
+// Interrupt and Exception Handling
+//
+// This module sets up the Interrupt Descriptor Table (IDT) to handle:
+// - Hardware interrupts (IRQ0 timer, IRQ1 keyboard)
+// - Software interrupts (syscalls via int 0x80)
+// - CPU exceptions (divide by zero, page fault, etc.)
+//
+// Also manages:
+// - PIC (Programmable Interrupt Controller) remapping
+// - PIT (Programmable Interval Timer) initialization
+// - Keyboard input buffering
+// - Syscall dispatch
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -8,42 +22,54 @@ extern void task_a(void);
 extern void task_b(void);
 extern void task_c(void);
 
-volatile uint32_t syscall_num;
-volatile uint32_t syscall_arg;
+// ===== SYSCALL MECHANISM =====
+// Tasks call syscall(num, arg) which:
+// 1. Sets these global variables with syscall number and argument
+// 2. Executes "int 0x80" software interrupt
+// 3. ISR handler reads these globals and services the request
+volatile uint32_t syscall_num;   // Syscall request number
+volatile uint32_t syscall_arg;   // Syscall argument
 
+// Wrapper to invoke syscall via software interrupt
 void syscall(uint32_t num, uint32_t arg) {
-    syscall_num = num;
-    syscall_arg = arg;
-    asm volatile("int $0x80");
+    syscall_num = num;      // Set syscall number
+    syscall_arg = arg;      // Set argument
+    asm volatile("int $0x80");  // Trigger software interrupt
 }
 
-#define PIC1_COMMAND 0x20
+// ===== PIC (8259 INTERRUPT CONTROLLER) PORT ADDRESSES =====
+// The PIC manages hardware interrupts from devices.
+// Master PIC controls IRQ0-7, Slave PIC controls IRQ8-15.
+#define PIC1_COMMAND 0x20   // Master PIC command port
+#define PIC1_DATA    0x21   // Master PIC data/mask port
+#define PIC2_COMMAND 0xA0   // Slave PIC command port
+#define PIC2_DATA    0xA1   // Slave PIC data/mask port
 
-#define PIC1_DATA    0x21
-#define PIC2_COMMAND 0xA0
-#define PIC2_DATA    0xA1
+#define PIC_EOI 0x20        // End-of-Interrupt code
+#define KBD_DATA_PORT 0x60  // Keyboard data port (scancode)
 
-#define PIC_EOI 0x20
-#define KBD_DATA_PORT 0x60
+// ===== IDT AND INTERRUPT STATE =====
+static idt_entry_t idt[256];    // Interrupt Descriptor Table (256 possible interrupts)
+static idt_ptr_t idt_ptr;       // IDTR register contents (base + limit)
 
-// Global state shared across modules
-static idt_entry_t idt[256];
-static idt_ptr_t idt_ptr;
-static volatile uint32_t tick_count = 0;
-static volatile uint32_t pit_raw_ticks = 0;
-static volatile uint32_t pit_effective_hz = 0;
+// Timer tracking for scheduler
+static volatile uint32_t tick_count = 0;         // Count of timer ticks
+static volatile uint32_t pit_raw_ticks = 0;     // Raw PIT interrupt count
+static volatile uint32_t pit_effective_hz = 0;  // Actual frequency achieved
 static volatile uint32_t scheduler_quantum_ticks = 1;
 static volatile uint32_t scheduler_tick_divider = 0;
 
-// Input buffer for keyboard data
+// ===== KEYBOARD INPUT BUFFERING =====
+// When keyboard interrupt fires, scancode is added to ring buffer.
+// Tasks can poll this buffer via input_getchar_nb() in tasks.c
 #define INPUT_BUFFER_SIZE 256
 static volatile char input_buffer[INPUT_BUFFER_SIZE];
-static volatile uint32_t input_head = 0;
-static volatile uint32_t input_tail = 0;
+static volatile uint32_t input_head = 0;  // Where to write next character
+static volatile uint32_t input_tail = 0;  // Where to read next character
 
-// Display state
-static volatile uint32_t display_row_input = 6;
-static volatile uint32_t display_row_task = 3;
+// Display output state
+static volatile uint32_t display_row_input = 6;  // VGA row for keyboard display
+static volatile uint32_t display_row_task = 3;   // VGA row for task display
 
 static inline void outb(uint16_t port, uint8_t value) {
     asm volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
@@ -60,48 +86,73 @@ extern void serial_print(const char* s);
 extern void serial_putchar(char c);
 
 static void pic_remap(void) {
-    uint8_t a1 = inb(PIC1_DATA);
+    // The PIC starts with IRQ0-7 mapped to CPU vectors 0-7 (these conflict with CPU exceptions).
+    // We need to remap them to vectors 0x20-0x27 (after exceptions).
+    //
+    // Initialization Command Word (ICW) sequence:
+    // ICW1: Signal start of initialization, cascade mode
+    // ICW2: Interrupt vector offset (base address)
+    // ICW3: Slave PIC configuration
+    // ICW4: Mode selection
+    
+    uint8_t a1 = inb(PIC1_DATA);  // Read current mask
     uint8_t a2 = inb(PIC2_DATA);
 
-    outb(PIC1_COMMAND, 0x11);
+    outb(PIC1_COMMAND, 0x11);  // ICW1: Start init, cascade mode
     outb(PIC2_COMMAND, 0x11);
 
-    outb(PIC1_DATA, 0x20); // Master vector offset 0x20
-    outb(PIC2_DATA, 0x28); // Slave vector offset 0x28
+    outb(PIC1_DATA, 0x20);     // ICW2: Master IRQ0-7 map to vectors 32-39 (0x20-0x27)
+    outb(PIC2_DATA, 0x28);     // ICW2: Slave IRQ8-15 map to vectors 40-47 (0x28-0x2F)
 
-    outb(PIC1_DATA, 0x04);
-    outb(PIC2_DATA, 0x02);
+    outb(PIC1_DATA, 0x04);     // ICW3: Master has slave at IRQ2
+    outb(PIC2_DATA, 0x02);     // ICW3: Slave is connected to Master IRQ2
 
-    outb(PIC1_DATA, 0x01);
+    outb(PIC1_DATA, 0x01);     // ICW4: 8086 mode
     outb(PIC2_DATA, 0x01);
 
-    // Enable IRQ0 (timer) and IRQ1 (keyboard) on master PIC.
-    // 0xFC = 11111100 (unmask IRQ0 and IRQ1).
-    outb(PIC1_DATA, 0xFC); // 11111100 - IRQ0 and IRQ1 enabled
-    outb(PIC2_DATA, 0xFF); // 11111111
+    // Interrupt Mask Register (IMR): Select which IRQs are enabled.
+    // Bit=0 means IRQ enabled, Bit=1 means IRQ disabled.
+    // 0xFC = 11111100 binary
+    //   Bits 0-1 = 0 (IRQ0 timer, IRQ1 keyboard enabled)
+    //   Bits 2-7 = 1 (IRQ2-7 disabled)
+    outb(PIC1_DATA, 0xFC);     // Master: enable IRQ0, IRQ1; disable others
+    outb(PIC2_DATA, 0xFF);     // Slave: disable all IRQs
 }
 
-
 static inline void pic_send_eoi(uint8_t irq) {
+    // Send End-of-Interrupt signal to PIC.
+    // For IRQs on the slave (8+), we must send EOI to both master and slave.
     if (irq >= 8) {
-        outb(PIC2_COMMAND, PIC_EOI);
+        outb(PIC2_COMMAND, PIC_EOI);  // Tell Slave we're done
     }
-    outb(PIC1_COMMAND, PIC_EOI);
+    outb(PIC1_COMMAND, PIC_EOI);      // Tell Master we're done
 }
 
 static void set_idt_entry(uint8_t vector, void (*handler)(void), uint16_t selector, uint8_t flags) {
+    // Populate one IDT entry with interrupt handler address.
+    // IDT entry is 8 bytes (two 16-bit offset parts + selector + flags).
+    //
+    // Parameters:
+    //   vector: interrupt vector number (0-255)
+    //   handler: address of interrupt handler function
+    //   selector: code segment selector (0x08 for kernel code)
+    //   flags: type and attributes (0x8E for interrupt gate)
+    
     uint32_t base = (uint32_t)handler;
-    idt[vector].offset_low = base & 0xFFFF;
-    idt[vector].selector = selector;
-    idt[vector].zero = 0;
-    idt[vector].type_attr = flags;
-    idt[vector].offset_high = (base >> 16) & 0xFFFF;
+    idt[vector].offset_low = base & 0xFFFF;          // Low 16 bits of handler address
+    idt[vector].selector = selector;                 // Code segment selector
+    idt[vector].zero = 0;                            // Reserved field
+    idt[vector].type_attr = flags;                   // Type and attributes
+    idt[vector].offset_high = (base >> 16) & 0xFFFF; // High 16 bits of handler address
 }
 
 static inline void lidt(void) {
-    idt_ptr.limit = (uint16_t)(sizeof(idt_entry_t) * 256 - 1);
-    idt_ptr.base = (uint32_t)&idt;
-    asm volatile ("lidt (%0)" : : "r"(&idt_ptr));
+    // Load IDT Register (IDTR) with IDT base address and size.
+    // The IDTR is a special CPU register that points to our IDT.
+    
+    idt_ptr.limit = (uint16_t)(sizeof(idt_entry_t) * 256 - 1);  // Size of IDT (256 entries)
+    idt_ptr.base = (uint32_t)&idt;                              // Address of IDT
+    asm volatile ("lidt (%0)" : : "r"(&idt_ptr));            // Load IDTR
 }
 
 extern void irq0_handler_asm(void);
