@@ -18,9 +18,30 @@ mb_header_end:
 section .text
 global _start
 extern kernel_main
+extern __bss_start
+extern __bss_end
+
+section .bss
+align 16
+stack_bottom:
+    resb 16384
+stack_top:
+
+section .text
 
 _start:
     cli
+    ; Set a known-good kernel stack before entering C code.
+    mov esp, stack_top
+
+    ; Zero .bss so static globals start in a deterministic state.
+    mov edi, __bss_start
+    mov ecx, __bss_end
+    sub ecx, edi
+    xor eax, eax
+    shr ecx, 2
+    rep stosd
+
     call kernel_main
 .hang:
     hlt
