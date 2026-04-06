@@ -113,6 +113,24 @@ Here's what the files do (focus on C files, assembly is for low-level magic):
 - `README.md`: This guide.
 - `TESTING.md`: How to test the kernel.
 
+## What We've Built
+
+This kernel includes:
+- ✅ **Boot Process**: GRUB loads kernel into memory.
+- ✅ **Interrupts**: Timer and keyboard handling.
+- ✅ **Preemptive Scheduler**: Round-robin with time-slicing.
+- ✅ **System Calls**: Write, spawn, exit.
+- ✅ **Memory Management**: Simple page allocator.
+- ✅ **Shell Interface**: Interactive commands.
+- ✅ **Task Management**: Multiple kernel threads.
+
+Missing for a full OS:
+- ❌ 64-bit mode (currently 32-bit).
+- ❌ User-mode programs.
+- ❌ File system.
+- ❌ Networking.
+- ❌ Advanced memory (virtual memory, paging).
+
 ## Building and Running
 
 ### Install Tools

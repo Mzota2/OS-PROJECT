@@ -86,7 +86,7 @@ static void task_shell(void) {
 			serial_putchar(c);
 			serial_print("\n");
 			if (c == 'h' || c == 'H') {
-				display_string(7, "Commands: h=help, a=info A, b=info B, c=info C, w=write, q=spawn A, r=spawn B, t=spawn C, x=exit, m=memory test");
+				display_string(7, "Commands: h=help, a=info A, b=info B, c=info C, w=write, q=spawn A, r=spawn B, t=spawn C, x=exit, m=memory test, c=clear");
 			} else if (c == 'a' || c == 'A') {
 				display_string(8, "Task A: prints 'A' via syscall");
 			} else if (c == 'b' || c == 'B') {
@@ -120,6 +120,13 @@ static void task_shell(void) {
 				} else {
 					display_string(11, "Memory test: OOM");
 				}
+			} else if (c == 'c' || c == 'C') {
+				display_clear_row(7);
+				display_clear_row(8);
+				display_clear_row(9);
+				display_clear_row(10);
+				display_clear_row(11);
+				display_string(7, "Screen cleared");
 			} else {
 				display_string(11, "Unknown command");
 			}

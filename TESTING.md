@@ -113,6 +113,7 @@ qemu-system-i386 -cdrom os.iso -no-reboot -no-shutdown
 - `q`, `r`, `t`: Spawn new tasks (see more switching).
 - `x`: Exits shell (system continues).
 - `m`: Tests memory, shows PASS/FAIL on row 11.
+- `c`: Clears rows 7-11.
 
 **Pass:** Commands work as described. Unknown keys show "Unknown command".
 
