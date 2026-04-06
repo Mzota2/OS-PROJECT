@@ -35,13 +35,13 @@ static void serial_init(void) {
 	outb(SERIAL_PORT + 4, 0x0B);    // IRQs enabled, RTS/DSR set
 }
 
-static void serial_putchar(char c) {
+void serial_putchar(char c) {
 	// Wait for transmit holding register to be empty
 	while ((inb(SERIAL_PORT + 5) & 0x20) == 0);
 	outb(SERIAL_PORT, (uint8_t)c);
 }
 
-static void serial_print(const char* str) {
+void serial_print(const char* str) {
 	while (*str) {
 		if (*str == '\n') {
 			serial_putchar('\r');

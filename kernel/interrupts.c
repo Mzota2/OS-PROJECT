@@ -42,6 +42,10 @@ static inline uint8_t inb(uint16_t port) {
     return value;
 }
 
+// Serial functions (declared in kernel.c)
+extern void serial_print(const char* s);
+extern void serial_putchar(char c);
+
 static void pic_remap(void) {
     uint8_t a1 = inb(PIC1_DATA);
     uint8_t a2 = inb(PIC2_DATA);
@@ -58,9 +62,9 @@ static void pic_remap(void) {
     outb(PIC1_DATA, 0x01);
     outb(PIC2_DATA, 0x01);
 
-    // Enable IRQ0 (timer) on master PIC. Disable IRQ1 (keyboard) for now.
-    // 0xFE = 11111110 (unmask only IRQ0, mask IRQ1).
-    outb(PIC1_DATA, 0xFE); // 11111110 - only IRQ0 enabled
+    // Enable IRQ0 (timer) and IRQ1 (keyboard) on master PIC.
+    // 0xFC = 11111100 (unmask IRQ0 and IRQ1).
+    outb(PIC1_DATA, 0xFC); // 11111100 - IRQ0 and IRQ1 enabled
     outb(PIC2_DATA, 0xFF); // 11111111
 }
 
@@ -267,6 +271,10 @@ void keyboard_service(void) {
             if (next_head != input_tail) {
                 input_buffer[input_head] = c;
                 input_head = next_head;
+                // Debug: print to serial on key press
+                serial_print("[KBD] Pressed: ");
+                serial_putchar(c);
+                serial_print("\n");
             }
         }
     }
