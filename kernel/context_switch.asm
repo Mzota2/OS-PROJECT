@@ -5,6 +5,7 @@
 BITS 32
 
 global context_switch_asm
+global start_first_task_asm
 
 ; Offsets within cpu_context_t (must match scheduler.h)
 %define OFF_EAX     0
@@ -51,3 +52,12 @@ context_switch_asm:
 	mov     ecx, [edx + OFF_EIP]
 	push    ecx
 	ret
+
+; void start_first_task_asm(uint32_t initial_esp);
+; Enter the first scheduled task by restoring a synthetic interrupt frame.
+start_first_task_asm:
+    mov     esp, [esp + 4]
+    popa
+    iret
+
+section .note.GNU-stack noalloc noexec nowrite progbits

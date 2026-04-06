@@ -18,7 +18,7 @@ static void task_a(void) {
 	for (;;) {
 		syscall_request(1, 'A'); // print via syscall
 		busy_delay(3000000);
-		scheduler_yield();       // cooperative yield in task context
+		scheduler_yield();
 	}
 }
 

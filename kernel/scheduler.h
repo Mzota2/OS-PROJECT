@@ -30,7 +30,9 @@ void scheduler_add_task(void (*entry)(void), const char* name);
 task_t* scheduler_current_task(void);
 void scheduler_tick(void);
 extern void context_switch_asm(task_t* prev_task, task_t* next_task);
+void start_first_task_asm(uint32_t initial_esp);
 void scheduler_yield(void);
 void scheduler_start(void);
+uint32_t scheduler_on_timer_isr(uint32_t current_esp);
 
 #endif // OS_SCHEDULER_H

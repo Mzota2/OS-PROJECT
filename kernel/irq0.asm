@@ -7,7 +7,6 @@ global isr_stub_err
 extern pit_timer_service
 extern keyboard_irq_service
 extern syscall_irq_service
-extern scheduler_on_timer_isr
 
 section .text
 
@@ -36,12 +35,7 @@ isr_stub_err:
 irq0_handler_asm:
     pusha              ; save general purpose registers
     call pit_timer_service
-    mov eax, esp       ; current task interrupt-frame stack pointer
-    push eax
-    call scheduler_on_timer_isr
-    add esp, 4
-    mov esp, eax       ; switch to selected task's interrupt frame
-    popa               ; restore registers from selected task
+    popa               ; restore registers
     iret               ; return from interrupt
 
 ; IRQ1 interrupt handler wrapper (keyboard)

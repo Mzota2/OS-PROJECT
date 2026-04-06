@@ -61,6 +61,10 @@ Pass criteria:
 - Syscall output row receives A/B/C characters over time.
 - Kernel remains responsive (no hang/reboot) while tasks rotate cooperatively.
 
+Current scheduler mode:
+- Rotation currently uses cooperative `scheduler_yield()` in task loops.
+- Verify all tasks continue to rotate and emit syscall output under timer IRQ load.
+
 ## 5) Keyboard IRQ Smoke Test
 
 Run:
@@ -119,3 +123,19 @@ make run-debug
 Pass criteria:
 - `qemu.log` is generated for diagnostics.
 - No continuous CPU reset loop in log (look for repeated reset patterns).
+
+## 9) Context Switch Integrity Test (Timer + Interrupt Frame)
+
+Run:
+
+```bash
+make clean
+make
+make run-debug
+```
+
+Pass criteria:
+- System boots and enters tasks without immediate fault.
+- Task output continues while timer ticks advance.
+- No repeated `cpu_reset` storm in `qemu.log`.
+- Keyboard IRQ still works while task switching is active.

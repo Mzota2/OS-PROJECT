@@ -38,7 +38,7 @@ void scheduler_add_task(void (*entry)(void), const char* name) {
 	uint32_t idx = task_count++;
 	task_entries[idx] = entry;
 
-	// Initialize context to start at task_trampoline with a fresh stack
+	// Initialize context to start at task_trampoline with a fresh stack.
 	uint32_t stack_top = tasks[idx].stack_base + tasks[idx].stack_size;
 
 	// Align stack to 16 bytes for good measure
@@ -53,7 +53,7 @@ void scheduler_add_task(void (*entry)(void), const char* name) {
 	tasks[idx].context.ebp = 0;
 	tasks[idx].context.esp = stack_top;
 	tasks[idx].context.eip = (uint32_t)task_trampoline;
-	tasks[idx].context.eflags = 0x202; // IF=1, reserved bit set
+	tasks[idx].context.eflags = 0x202;
 
 	tasks[idx].state = TASK_READY;
 
@@ -81,8 +81,7 @@ static uint32_t find_next_ready(uint32_t from) {
 }
 
 void scheduler_tick(void) {
-	// With cooperative switching, just update any visual state here if desired.
-	// Preemptive switching could request a yield flag in the future.
+	// Keep heartbeat independent; cooperative switches occur via explicit yield.
 }
 
 void scheduler_yield(void) {
@@ -112,10 +111,14 @@ void scheduler_start(void) {
 	tasks[0].state = TASK_RUNNING;
 	display_task_status((const char*)tasks[0].name, '*');
 
-	// Jump from kernel context into the first task
-	// Use a dummy previous context on stack (ignored on first switch)
+	// Jump from kernel context into the first task.
 	task_t dummy_prev;
 	context_switch_asm(&dummy_prev, &tasks[0]);
+}
+
+uint32_t scheduler_on_timer_isr(uint32_t current_esp) {
+	// Placeholder for future IRQ-driven preemption.
+	return current_esp;
 }
 
 // Trampoline that calls the registered entry for the current task id

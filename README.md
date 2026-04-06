@@ -294,7 +294,7 @@ The OS will load and display output to the VGA text buffer at address `0xB8000`.
 - **Demo Tasks**
   - Three concurrent tasks (A, B, C) running in round-robin
   - Each task: prints its ID, calls syscall to display character, busy-waits
-  - Task switching visible every 1 second via timer preemption
+  - Task switching visible during cooperative yields in each task loop
 
 - Status: **COMPLETE AND WORKING**
 
@@ -411,6 +411,11 @@ These fixes improve deterministic boot behavior and reduce unstable/blinking tim
    - `make run` now uses `-no-reboot -no-shutdown` by default.
    - This prevents automatic reset loops from appearing as rapid blinking and keeps failure states visible on screen.
    - `make run-debug` remains the verbose diagnostic mode with QEMU interrupt/reset tracing.
+
+5. **Context-switch stabilization step**
+   - Kept timer and interrupt plumbing active while reverting task switching to a proven cooperative path.
+   - Demo tasks explicitly call `scheduler_yield()` to guarantee visible A/B/C rotation and syscall activity.
+   - IRQ-driven preemptive switching remains the next incremental milestone after baseline behavior is consistently stable.
 
 ---
 
