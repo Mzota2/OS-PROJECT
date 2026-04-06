@@ -58,9 +58,9 @@ static void pic_remap(void) {
     outb(PIC1_DATA, 0x01);
     outb(PIC2_DATA, 0x01);
 
-    // Enable IRQ0 (timer) and IRQ1 (keyboard) on master PIC.
-    // 0xFC = 11111100 (unmask IRQ0 and IRQ1). Slave remains fully masked.
-    outb(PIC1_DATA, 0xFC); // 11111100
+    // Enable IRQ0 (timer) on master PIC. Disable IRQ1 (keyboard) for now.
+    // 0xFE = 11111110 (unmask only IRQ0, mask IRQ1).
+    outb(PIC1_DATA, 0xFE); // 11111110 - only IRQ0 enabled
     outb(PIC2_DATA, 0xFF); // 11111111
 }
 
@@ -129,12 +129,13 @@ void pit_init(uint32_t frequency) {
         frequency = 1;
     }
 
-    // PIT channel 0 divisor is 16-bit. The lowest hardware rate is ~18.2Hz.
+    // PIT channel 0 divisor is 16-bit. Limit to achievable frequencies.
     uint32_t divisor = 1193180 / frequency;
     if (divisor == 0) {
         divisor = 1;
     }
     if (divisor > 65535) {
+        // Can't achieve requested frequency; use maximum (slowest) we can
         divisor = 65535;
     }
 
@@ -143,11 +144,8 @@ void pit_init(uint32_t frequency) {
         pit_effective_hz = 18;
     }
 
-    // Run scheduler at requested logical frequency even when PIT clamps low Hz.
-    scheduler_quantum_ticks = pit_effective_hz / frequency;
-    if (scheduler_quantum_ticks == 0) {
-        scheduler_quantum_ticks = 1;
-    }
+    // Display tick on every interrupt, scheduler quantum based on actual Hz
+    scheduler_quantum_ticks = 1;  // Always display every tick
     scheduler_tick_divider = 0;
 
     outb(0x43, 0x36);
@@ -160,53 +158,93 @@ void pit_tick_handler(void) {
 
     volatile uint16_t* vga = (uint16_t*)0xB8000;
     
-    // Row 1: Display tick count in fixed width
+    // Row 1 (index 80): Display tick count
     const char* text = "Tick: ";
-    int base = 80; // second line
+    int base = 80;
     
     for (int i = 0; text[i] != '\0'; i++) {
         vga[base + i] = (0x0F << 8) | text[i];
     }
 
+    // Simple decimal display (up to 5 digits)
     uint32_t n = tick_count;
-    int cur_col = base + 6;
-    int width = 3; // display at most 999 ticks with leading zeros
-
-    // write fixed width, right aligned
-    for (int i = 0; i < width; i++) {
-        int digit = n % 10;
-        vga[cur_col + width - 1 - i] = (0x0F << 8) | ('0' + digit);
-        n /= 10;
+    char buf[6];
+    int pos = 5;
+    buf[pos] = '\0';
+    
+    if (n == 0) {
+        buf[0] = '0';
+        pos = 1;
+    } else {
+        while (n > 0 && pos > 0) {
+            buf[--pos] = '0' + (n % 10);
+            n /= 10;
+        }
     }
 
-    // clear any higher digits beyond width
-    for (int i = width; i < 10; i++) {
-        vga[cur_col + i] = (0x0F << 8) | ' ';
+    int col = base + 6;
+    for (int i = pos; i < 6 && col < base + 10; i++) {
+        vga[col++] = (0x0F << 8) | buf[i];
+    }
+    
+    // Clear rest of display area
+    while (col < base + 15) {
+        vga[col++] = (0x0F << 8) | ' ';
     }
 
-    // Row 2: Status line showing we're still in kernel
-    const char* status = "Running normally";
-    volatile uint16_t* status_row = vga + 160; // row 2
-    for (int i = 0; status[i] != '\0'; i++) {
-        status_row[i] = (0x0F << 8) | status[i];
-    }
+    // Toggle indicator at row 1, col 40 for visible heartbeat
+    static int toggle = 0;
+    toggle = !toggle;
+    vga[1 * 80 + 40] = (0x0F << 8) | (toggle ? 'X' : 'O');
 }
 
 // Called from assembly ISR wrapper
 void pit_timer_service(void) {
-    // Acknowledge the timer interrupt on the PIC
+    // Acknowledge the timer interrupt on the PIC first
     pic_send_eoi(0);
 
-    // Count every hardware PIT interrupt.
+    // Count every hardware PIT interrupt
     pit_raw_ticks++;
-
-    // Run visible tick + scheduler at requested logical tick rate.
-    scheduler_tick_divider++;
-    if (scheduler_tick_divider >= scheduler_quantum_ticks) {
-        scheduler_tick_divider = 0;
-        pit_tick_handler();
-        scheduler_tick();
+    tick_count++;  // Increment tick count directly (polling loop will display)
+    
+    // Debug: print every 10 ticks to serial
+    if (tick_count % 10 == 0) {
+        // Simple serial output for ISR debug
+        static const char* msg = "[ISR] Tick: ";
+        const char* p = msg;
+        while (*p) {
+            while ((inb(0x3F8 + 5) & 0x20) == 0);
+            outb(0x3F8, *p);
+            p++;
+        }
+        // Print tick count
+        uint32_t n = tick_count;
+        if (n == 0) {
+            while ((inb(0x3F8 + 5) & 0x20) == 0);
+            outb(0x3F8, '0');
+        } else {
+            char buf[16];
+            int len = 0;
+            while (n > 0) {
+                buf[len++] = '0' + (n % 10);
+                n /= 10;
+            }
+            for (int i = len - 1; i >= 0; i--) {
+                while ((inb(0x3F8 + 5) & 0x20) == 0);
+                outb(0x3F8, buf[i]);
+            }
+        }
+        while ((inb(0x3F8 + 5) & 0x20) == 0);
+        outb(0x3F8, '\n');
     }
+    
+    // Don't call scheduler_tick() yet - test if ISR works at all
+    // scheduler_tick();
+}
+
+// Expose tick count for polling from main loop
+uint32_t timer_get_ticks(void) {
+    return tick_count;
 }
 
 void keyboard_service(void) {
@@ -231,6 +269,26 @@ void keyboard_service(void) {
                 input_head = next_head;
             }
         }
+    }
+
+    // Display the input buffer on row 2
+    volatile uint16_t* input_row = (volatile uint16_t*)0xB8000 + 160;
+    const char* input_label = "Keyboard: ";
+    int col = 0;
+    for (int i = 0; input_label[i] != '\0'; i++) {
+        input_row[col++] = (0x0F << 8) | input_label[i];
+    }
+    
+    // Show current input buffer contents
+    uint32_t temp_tail = input_tail;
+    while (temp_tail != input_head && col < 80) {
+        input_row[col++] = (0x0F << 8) | input_buffer[temp_tail];
+        temp_tail = (temp_tail + 1) % INPUT_BUFFER_SIZE;
+    }
+    
+    // Clear rest of row
+    while (col < 80) {
+        input_row[col++] = (0x0F << 8) | ' ';
     }
 }
 
@@ -319,4 +377,25 @@ void display_clear_row(uint32_t row) {
 void display_task_status(const char* name, char status) {
     vga_putstring(display_row_task, 0, name);
     vga_putchar(display_row_task, 40, status);
+}
+
+// Display current running task on row 4
+void display_current_task(const char* name) {
+    volatile uint16_t* vga = (uint16_t*)0xB8000;
+    const char* label = "RUN: ";
+    int row_offset = 4 * 80;
+    
+    int col = 0;
+    for (int i = 0; label[i] != '\0'; i++) {
+        vga[row_offset + col++] = (0x0F << 8) | label[i];
+    }
+    
+    for (int i = 0; name && name[i] != '\0' && col < 80; i++) {
+        vga[row_offset + col++] = (0x0F << 8) | name[i];
+    }
+    
+    // Clear rest of row
+    while (col < 80) {
+        vga[row_offset + col++] = (0x0F << 8) | ' ';
+    }
 }

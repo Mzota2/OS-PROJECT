@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "idt.h"
 #include "scheduler.h"
+#include "gdt.h"
 
 static inline void sti(void) {
 	asm volatile("sti");
@@ -9,6 +10,45 @@ static inline void sti(void) {
 
 static inline void hlt(void) {
 	asm volatile("hlt");
+}
+
+static inline void outb(uint16_t port, uint8_t value) {
+	asm volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static inline uint8_t inb(uint16_t port) {
+	uint8_t value;
+	asm volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
+	return value;
+}
+
+// Serial port output for debugging
+#define SERIAL_PORT 0x3F8
+
+static void serial_init(void) {
+	outb(SERIAL_PORT + 1, 0x00);    // Disable all interrupts
+	outb(SERIAL_PORT + 3, 0x80);    // Enable DLAB (set baud rate divisor)
+	outb(SERIAL_PORT + 0, 0x03);    // Set divisor to 3 (38400 baud)
+	outb(SERIAL_PORT + 1, 0x00);
+	outb(SERIAL_PORT + 3, 0x03);    // 8 bits, no parity, 1 stop bit
+	outb(SERIAL_PORT + 2, 0xC7);    // Enable FIFO
+	outb(SERIAL_PORT + 4, 0x0B);    // IRQs enabled, RTS/DSR set
+}
+
+static void serial_putchar(char c) {
+	// Wait for transmit holding register to be empty
+	while ((inb(SERIAL_PORT + 5) & 0x20) == 0);
+	outb(SERIAL_PORT, (uint8_t)c);
+}
+
+static void serial_print(const char* str) {
+	while (*str) {
+		if (*str == '\n') {
+			serial_putchar('\r');
+		}
+		serial_putchar(*str);
+		str++;
+	}
 }
 
 static volatile uint16_t* const VGA = (uint16_t*)0xB8000;
@@ -31,32 +71,114 @@ static void vga_puts_at(int row, int col, const char* s) {
 }
 
 void kernel_main(void) {
+	// Initialize serial port early for debugging
+	serial_init();
+	serial_print("[KERNEL] Serial debug initialized\n");
+	
 	// Basic screen init
 	vga_clear();
 	vga_puts_at(0, 0, "Custom OS Kernel");
-	vga_puts_at(2, 0, "Initializing IDT, PIC, PIT...");
+	serial_print("[KERNEL] VGA cleared and title printed\n");
+	
+	vga_puts_at(1, 0, "Initializing IDT, PIC, PIT...");
+	serial_print("[INIT] Starting hardware initialization\n");
+
+	// Initialize GDT first for proper segment descriptors
+	serial_print("[INIT] Calling gdt_init()...\n");
+	gdt_init();
+	serial_print("[INIT] gdt_init() completed\n");
 
 	// Phase 2 wiring (interrupts and timer)
+	vga_puts_at(2, 0, "Calling idt_init...");
+	serial_print("[INIT] Calling idt_init()...\n");
 	idt_init();
-	pit_init(1); // 1 Hz to make ticks visible
+	serial_print("[INIT] idt_init() completed\n");
+	
+	vga_puts_at(2, 20, "[OK]  pit_init...");
+	serial_print("[INIT] Calling pit_init(18)...\n");
+	pit_init(18);  // 18 Hz is the fastest reliable rate with max divisor
+	serial_print("[INIT] pit_init() completed\n");
 
-	vga_puts_at(0, 40, "[OK]");
-	vga_puts_at(2, 40, "[OK]");
-	vga_puts_at(3, 0, "All systems initialized");
-
+	vga_puts_at(2, 50, "[OK]");
+	
 	// Phase 3: cooperative scheduler/tasks
+	vga_puts_at(3, 0, "Initializing scheduler...");
+	serial_print("[INIT] Calling scheduler_init()...\n");
 	scheduler_init();
-	// add demo tasks
+	serial_print("[INIT] scheduler_init() completed\n");
+	
+	vga_puts_at(4, 0, "Adding demo tasks...");
+	serial_print("[INIT] Calling tasks_init_demo()...\n");
 	extern void tasks_init_demo(void);
 	tasks_init_demo();
+	serial_print("[INIT] tasks_init_demo() completed\n");
 
+	vga_puts_at(5, 0, "Enabling interrupts...");
+	serial_print("[INIT] Calling sti() to enable interrupts...\n");
+	
 	// Enable interrupts so PIT starts ticking
 	sti();
+	serial_print("[KERNEL] Interrupts enabled - entering polling loop\n");
+	
+	vga_puts_at(5, 20, "[INT OK]");
+	vga_puts_at(6, 0, "Timer: 0");
 
-	// Start the scheduler: jump into first task
-	scheduler_start();
-
-	// If control ever returns, idle
-	for (;;) { hlt(); }
+	extern uint32_t timer_get_ticks(void);
+	
+	serial_print("[KERNEL] Starting polling loop...\n");
+	
+	uint32_t last = 0;
+	char buf[32];
+	int loop_count = 0;
+	
+	for (;;) {
+		loop_count++;
+		uint32_t t = timer_get_ticks();
+		
+		// Print every 10000 iterations to avoid spam
+		if (loop_count % 10000 == 0) {
+			serial_print("[POLL] Loop iteration: ");
+			serial_print("Tick count: ");
+			// Convert tick count to string for serial output
+			int n = (int)t;
+			int len = 0;
+			if (n == 0) {
+				buf[len++] = '0';
+			} else {
+				int tmp = n;
+				while (tmp > 0) { buf[len++] = '0' + (tmp % 10); tmp /= 10; }
+				// reverse
+				for (int i = 0; i < len/2; i++) { char c = buf[i]; buf[i] = buf[len-1-i]; buf[len-1-i] = c; }
+			}
+			buf[len] = '\0';
+			serial_print(buf);
+			serial_print("\n");
+		}
+		
+		// Update VGA display - write the full "Timer: XXX" string
+		if (t != last) {
+			last = t;
+			int n = (int)t;
+			int len = 0;
+			if (n == 0) {
+				buf[len++] = '0';
+			} else {
+				int tmp = n;
+				while (tmp > 0) { buf[len++] = '0' + (tmp % 10); tmp /= 10; }
+				// reverse
+				for (int i = 0; i < len/2; i++) { char c = buf[i]; buf[i] = buf[len-1-i]; buf[len-1-i] = c; }
+			}
+			buf[len] = '\0';
+			
+			// Write "Timer: " followed by the number
+			vga_puts_at(6, 0, "Timer: ");
+			vga_puts_at(6, 7, buf);
+			
+			// Clear any remaining characters from previous longer numbers
+			vga_puts_at(6, 7 + len, "    ");
+		}
+		
+		asm volatile("hlt");
+	}
 }
 

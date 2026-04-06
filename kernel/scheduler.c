@@ -14,6 +14,7 @@ static uint8_t started = 0;
 
 extern void context_switch_asm(task_t* prev_task, task_t* next_task);
 extern void display_task_status(const char* name, char status);
+extern void display_current_task(const char* name);
 
 static void task_trampoline(void);
 
@@ -96,7 +97,9 @@ void scheduler_yield(void) {
 	prev_task->state = TASK_READY;
 	next_task->state = TASK_RUNNING;
 
+	// Display task switch
 	display_task_status((const char*)next_task->name, '*');
+	
 	current_index = next;
 
 	// Switch contexts: does not return to the same point; execution continues in next task.
@@ -107,13 +110,33 @@ void scheduler_start(void) {
 	if (task_count == 0 || started) return;
 	started = 1;
 
+	// Debug: write to screen to prove we got here
+	volatile uint16_t* vga = (volatile uint16_t*)0xB8000;
+	const char* msg = "SCHED_START";
+	for (int i = 0; msg[i] != '\0'; i++) {
+		vga[6 * 80 + 30 + i] = (0x0F << 8) | msg[i];
+	}
+
 	current_index = 0;
 	tasks[0].state = TASK_RUNNING;
 	display_task_status((const char*)tasks[0].name, '*');
 
+	// Create a dummy kernel task context (we won't save it, just load the first task)
+	task_t dummy_kernel;
+	dummy_kernel.context.eax = 0;
+	dummy_kernel.context.ebx = 0;
+	dummy_kernel.context.ecx = 0;
+	dummy_kernel.context.edx = 0;
+	dummy_kernel.context.esi = 0;
+	dummy_kernel.context.edi = 0;
+	dummy_kernel.context.ebp = 0;
+	dummy_kernel.context.esp = 0;
+	dummy_kernel.context.eip = 0;
+	dummy_kernel.context.eflags = 0x202;
+
 	// Jump from kernel context into the first task.
-	task_t dummy_prev;
-	context_switch_asm(&dummy_prev, &tasks[0]);
+	// This function does not return
+	context_switch_asm(&dummy_kernel, &tasks[0]);
 }
 
 uint32_t scheduler_on_timer_isr(uint32_t current_esp) {

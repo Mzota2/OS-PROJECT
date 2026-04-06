@@ -33,16 +33,40 @@ isr_stub_err:
 ; IRQ0 interrupt handler wrapper (PIT timer)
 ; Runs in protected mode, then returns with IRET.
 irq0_handler_asm:
+    push ds
+    push es
+    push fs
+    push gs
     pusha              ; save general purpose registers
+    ; set data segments to kernel data selector (0x10)
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
     call pit_timer_service
     popa               ; restore registers
+    pop gs
+    pop fs
+    pop es
+    pop ds
     iret               ; return from interrupt
 
 ; IRQ1 interrupt handler wrapper (keyboard)
 irq1_handler_asm:
+    push ds
+    push es
+    push fs
+    push gs
     pusha
+    ; set data segments to kernel data selector (0x10)
+    mov ax, 0x10
+    mov ds, ax
+    mov es, ax
     call keyboard_irq_service
     popa
+    pop gs
+    pop fs
+    pop es
+    pop ds
     iret
 
 ; Syscall interrupt handler wrapper (int 0x80)

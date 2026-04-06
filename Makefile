@@ -13,6 +13,9 @@ boot.o:
 kernel.o:
 	$(CC) $(CFLAGS) kernel/kernel.c -o kernel.o
 
+gdt.o:
+	$(CC) $(CFLAGS) kernel/gdt.c -o gdt.o
+
 interrupts.o:
 	$(CC) $(CFLAGS) kernel/interrupts.c -o interrupts.o
 
@@ -28,8 +31,8 @@ context_switch.o:
 tasks.o:
 	$(CC) $(CFLAGS) kernel/tasks.c -o tasks.o
 
-kernel.elf: boot.o kernel.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o
-	$(LD) $(LDFLAGS) boot.o kernel.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o -o kernel.elf
+kernel.elf: boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o
+	$(LD) $(LDFLAGS) boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o -o kernel.elf
 
 os.iso: kernel.elf
 	mkdir -p iso/boot/grub
