@@ -4,6 +4,19 @@
 #include "idt.h"
 #include "scheduler.h"
 
+extern void task_a(void);
+extern void task_b(void);
+extern void task_c(void);
+
+volatile uint32_t syscall_num;
+volatile uint32_t syscall_arg;
+
+void syscall(uint32_t num, uint32_t arg) {
+    syscall_num = num;
+    syscall_arg = arg;
+    asm volatile("int $0x80");
+}
+
 #define PIC1_COMMAND 0x20
 
 #define PIC1_DATA    0x21
@@ -343,6 +356,24 @@ void syscall_service(void) {
         int base = 80 * 8;
         if (call_pos >= 80) call_pos = 0;
         vga[base + call_pos++] = (0x0F << 8) | c;
+    } else if (syscall_num == 2) { // spawn (create_thread)
+        // For demo: arg 0 = spawn task_a, arg 1 = spawn task_b, etc.
+        extern void task_a(void);
+        extern void task_b(void);
+        extern void task_c(void);
+        if (syscall_arg == 0) {
+            scheduler_add_task(task_a, "Syscall A");
+        } else if (syscall_arg == 1) {
+            scheduler_add_task(task_b, "Syscall B");
+        } else if (syscall_arg == 2) {
+            scheduler_add_task(task_c, "Syscall C");
+        }
+    } else if (syscall_num == 3) { // exit
+        task_t* current = scheduler_current_task();
+        if (current) {
+            current->state = TASK_DEAD;
+            scheduler_yield();
+        }
     }
 }
 

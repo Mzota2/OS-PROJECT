@@ -31,8 +31,11 @@ context_switch.o:
 tasks.o:
 	$(CC) $(CFLAGS) kernel/tasks.c -o tasks.o
 
-kernel.elf: boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o
-	$(LD) $(LDFLAGS) boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o -o kernel.elf
+memory.o:
+	$(CC) $(CFLAGS) kernel/memory.c -o memory.o
+
+kernel.elf: boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o memory.o
+	$(LD) $(LDFLAGS) boot.o kernel.o gdt.o interrupts.o irq0.o scheduler.o context_switch.o tasks.o memory.o -o kernel.elf
 
 os.iso: kernel.elf
 	mkdir -p iso/boot/grub

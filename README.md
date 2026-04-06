@@ -1,6 +1,203 @@
-# 🖥️ Custom Operating System
+# 🖥️ Learning Operating System Development: A Bare-Metal Kernel Guide
 
-A from-scratch OS kernel built with x86-64 assembly and C, running on bare metal via QEMU.
+Welcome! This project is a simple operating system (OS) kernel built from scratch. It's designed for beginners who are new to OS concepts, have basic programming experience (like in C), and want to learn how computers work at a low level. We'll avoid complex assembly code and focus on the big ideas.
+
+## What is This Project?
+
+An **operating system (OS)** is software that manages your computer's hardware (like the screen, keyboard, and memory) and lets you run programs. Examples include Windows, macOS, or Linux.
+
+This project builds a tiny OS **kernel** (the core part of an OS) that runs directly on computer hardware without any other OS underneath. It's "bare-metal" – like building a car engine from parts instead of buying a ready-made one.
+
+The kernel can:
+- Start up the computer (boot)
+- Handle hardware signals (interrupts)
+- Run multiple tasks at once (scheduling)
+- Let tasks ask for services (syscalls)
+- Manage memory
+- Provide a simple text-based interface (shell)
+
+It's written mostly in C (a programming language) with some low-level assembly for special tasks. We use QEMU (a computer simulator) to test it safely.
+
+## Who is This For?
+
+- **Beginners** in OS development.
+- People with basic C programming knowledge (not C++ required).
+- Those curious about how computers work "under the hood."
+- No assembly experience needed – we'll explain it simply.
+
+## Prerequisites
+
+Before starting, you should know:
+- Basic programming: variables, loops, functions in C.
+- How computers work: CPU, memory (RAM), input/output (I/O).
+- Command line basics: running commands in a terminal.
+
+You'll need:
+- A computer with Linux (or similar).
+- GCC compiler, NASM assembler, QEMU emulator.
+- Text editor (like VS Code).
+
+## Key Concepts Explained Simply
+
+Let's learn the main ideas without getting too technical.
+
+### 1. How a Computer Starts (Boot Process)
+When you turn on a computer, it needs to load an OS. Normally, this is automatic, but here we control it.
+
+- **BIOS/UEFI**: Built-in software that checks hardware.
+- **Bootloader (GRUB)**: Loads our kernel from disk into memory.
+- **Kernel Entry**: Our code starts running, sets up basics like screen output.
+
+Analogy: Like starting a car – ignition (BIOS), starter motor (GRUB), engine running (kernel).
+
+### 2. Interrupts: Hardware "Alerts"
+Hardware (like a timer or keyboard) sends signals to the CPU. The kernel must respond quickly.
+
+- **Timer Interrupt**: Happens regularly (like a clock tick) to switch tasks.
+- **Keyboard Interrupt**: When you press a key.
+
+Without interrupts, the computer would freeze waiting for input.
+
+Analogy: Like a doorbell – you stop what you're doing to answer.
+
+### 3. Scheduling: Running Multiple Tasks
+A computer can do many things at once by switching quickly between tasks.
+
+- **Cooperative**: Tasks voluntarily give up control.
+- **Preemptive**: Kernel forces switches after a time limit (quantum).
+
+Our kernel uses preemptive scheduling with a 100-tick limit per task.
+
+Analogy: A teacher managing students – each gets a turn, then switches.
+
+### 4. System Calls (Syscalls): Asking for Help
+Tasks can't directly access hardware. They ask the kernel via syscalls.
+
+- Examples: Print to screen, create new task, exit.
+- Done with a special instruction (`int 0x80`).
+
+Analogy: Asking a librarian for a book instead of grabbing it yourself.
+
+### 5. Memory Management
+Programs need RAM space. The kernel allocates and tracks it.
+
+- **Page Allocator**: Gives out 4KB chunks of memory.
+- Prevents programs from overwriting each other.
+
+Analogy: A hotel manager assigning rooms.
+
+### 6. Shell: A Simple Interface
+A text-based program where you type commands.
+
+- Commands: help, spawn tasks, test memory, etc.
+- Runs as a task itself.
+
+Analogy: A command prompt like in old computers.
+
+## Project Structure
+
+Here's what the files do (focus on C files, assembly is for low-level magic):
+
+- `boot/boot.asm`: Assembly to start the kernel (sets up multiboot for GRUB).
+- `kernel/kernel.c`: Main kernel code – initializes everything, starts scheduler.
+- `kernel/gdt.c`: Sets up Global Descriptor Table (memory segments).
+- `kernel/interrupts.c`: Handles interrupts, syscalls, keyboard input.
+- `kernel/scheduler.c`: Manages tasks – creates, switches, schedules.
+- `kernel/tasks.c`: Demo tasks (A, B, C, Shell) and their code.
+- `kernel/memory.c`: Simple memory allocator.
+- `kernel/context_switch.asm`: Assembly to save/restore task state when switching.
+- `kernel/irq0.asm`: Assembly for timer interrupt.
+- `linker.ld`: Tells linker how to arrange code in memory.
+- `Makefile`: Build instructions.
+- `grub.cfg`: GRUB configuration.
+- `README.md`: This guide.
+- `TESTING.md`: How to test the kernel.
+
+## Building and Running
+
+### Install Tools
+On Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install build-essential nasm qemu-system-x86 grub-pc-bin xorriso
+```
+
+### Build the Kernel
+```bash
+make clean  # Clean old files
+make        # Compile and link
+```
+
+This creates `os.iso` (a bootable disk image).
+
+### Run in QEMU
+```bash
+make run    # Starts QEMU with the kernel
+```
+
+- VGA window: Text output and shell.
+- Serial output: Debug messages (in terminal).
+
+To stop: Close QEMU window or Ctrl+C.
+
+## Testing the Kernel
+
+See `TESTING.md` for detailed tests. Quick checks:
+
+1. **Boot Test**: Runs without crashing.
+2. **Task Switching**: See tasks A/B/C switching on screen.
+3. **Shell Test**: Type 'h' for help, 'w' to test syscalls, etc.
+4. **Memory Test**: Type 'm' to allocate memory.
+
+If something fails, check serial output for errors.
+
+## Learning Tips
+
+- **Start Small**: Read one concept at a time, run tests.
+- **Experiment**: Change code (e.g., timer speed) and see what happens.
+- **Debug**: Use serial prints to see what's happening.
+- **Don't Worry About Assembly**: It's for CPU-specific tasks; focus on C logic.
+- **Common Mistakes**: Forgetting to enable interrupts, wrong memory addresses.
+
+## Future Improvements
+
+To make this a full OS:
+- **64-bit Mode**: Switch from 32-bit for more memory.
+- **User Programs**: Run code in "user mode" (safer).
+- **File System**: Store files in RAM or on disk.
+- **Networking**: Send data over internet.
+- **GUI**: Graphical interface instead of text.
+
+## Resources
+
+- **Books**: "Operating System Concepts" by Silberschatz (beginner-friendly).
+- **Online**: OSDev Wiki (osdev.org) – tutorials on bare-metal programming.
+- **Videos**: Search "how OS works" on YouTube.
+- **Code**: Look at Linux kernel source for inspiration (advanced).
+
+## Contributing
+
+This is a learning project! If you improve it, share your changes. Ideas:
+- Add more shell commands.
+- Improve memory allocator.
+- Add a simple file system.
+
+Have fun exploring how OSes work! If stuck, ask questions or check the code comments.
+
+This is a learning project for bare-metal OS development. Feel free to:
+- Add more phases or features
+- Improve existing code
+- Fix bugs or add tests
+- Submit pull requests
+
+## Architecture
+
+- **Bootloader**: GRUB multiboot compliant
+- **Kernel**: 32-bit protected mode, C and Assembly
+- **Scheduler**: Round-robin with preemptive time-slicing
+- **Interrupts**: PIC remapped, PIT timer, keyboard input
+- **Memory**: Flat 32-bit address space (no paging yet)
+- **I/O**: VGA text mode, serial console, PS/2 keyboard
 
 ---
 

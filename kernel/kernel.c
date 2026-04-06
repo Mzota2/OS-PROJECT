@@ -3,6 +3,9 @@
 #include "idt.h"
 #include "scheduler.h"
 #include "gdt.h"
+#include "memory.h"
+
+extern uint32_t _end;
 
 static inline void sti(void) {
 	asm volatile("sti");
@@ -87,6 +90,11 @@ void kernel_main(void) {
 	serial_print("[INIT] Calling gdt_init()...\n");
 	gdt_init();
 	serial_print("[INIT] gdt_init() completed\n");
+
+	// Initialize memory management
+	serial_print("[INIT] Calling memory_init()...\n");
+	memory_init((uint32_t)&_end, 0x400000);
+	serial_print("[INIT] memory_init() completed\n");
 
 	// Phase 2 wiring (interrupts and timer)
 	vga_puts_at(2, 0, "Calling idt_init...");
